@@ -1,0 +1,177 @@
+#include<linux/init.h>
+#include<linux/module.h>
+#include<linux/kernel.h>
+#include<linux/fs.h>
+#include<linux/miscdevice.h>
+#include<linux/cdev.h>
+#include<linux/device.h>
+#include<linux/delay.h>
+#include<asm/irq.h>
+#include<mach/gpio.h>
+#include<plat/regs-gpio.h>
+#include<plat/gpio-cfg.h>
+#include<mach/hardware.h>
+#include<linux/io.h>
+//#include<unistd.h>
+
+//0x20200000 is the base gpio register address,and plus 4 is the second register 
+#define reg_gpio_ctrl *(volatile int *)(0x20200000 + 4) 
+#define reg_gpio_set *(volatile int *)(0x2020001c)
+#define reg_gpio_clr *(volatile int *)(0x20200028)
+
+
+#define CMD_LED_OFF 0
+#define CMD_LED_ON 1
+#define CMD_SET_INTERVAL 3
+
+#define LED_MAJOR 197
+
+
+void light_init(void){
+	//set the 17th gpio output. the 3 bits of the 17th gpio fun select is 001
+	reg_gpio_ctrl |= (1 << 21);
+}
+
+void light_on(void){
+	reg_gpio_set |= (1 << 17);
+}
+
+void light_off(void){
+	reg_gpio_clr |= (1 << 17);
+}
+
+
+struct led_dev{
+	struct cdev cdev;
+	//unsigned char value;
+	unsigned long interval;
+};
+
+struct led_dev *led;
+int led_major = LED_MAJOR;
+
+
+MODULE_AUTHOR("Zoey Zhang");
+MODULE_LICENSE("Dual BSD/GPL");
+
+
+int led_open(struct inode *inode,struct file *filp){
+
+	struct led_dev dev;
+	dev = container_of(inode->i_cdev,struct led_dev,cdev);
+
+	filp->private_data = dev;
+	dev->interval = 500;
+	return 0;
+
+}
+
+int led_release(struct inode *inode,struct file *filp){
+	return 0;
+}
+
+ssize_t led_write(struct file *filp,const char __user *buf,size_t count,loff_t *f_pos){
+
+	struct led_dev *dev = filp->private_data;
+	unsigned long *blinks;
+	blinks = (unsigned long *)buf;
+	unsigned long times = 0;
+
+	for(;times < blinks;++times){
+		light_on();
+		usleep((useconds_t)(dev->interval * 1000));
+		light_off();
+		usleep((useconds_t)(dev->interval * 1000));
+	}
+
+	return 1;
+}
+
+int led_ioctl(struct inode *inode,struct file *filp,unsigned int cmd,unsigned long arg){
+
+	struct led_dev *dev = filp->private_data;
+
+	switch(cmd){
+		case CMD_LED_OFF:
+			light_off();
+			break;
+		case CMD_LED_ON:
+			light_on();
+			break;
+		case CMD_SET_INTERVAL:
+			//if (copy_from_user(&(dev->interval),&arg,sizeof(unsigned long)))
+			dev->interval = arg;
+			break;
+		default:
+			break;
+	}
+
+	return 0;
+
+}
+
+
+struct file_operations led_fops =
+{
+	.owner = THIS_MODULE,
+	.write = led_write,
+	.ioctl = led_ioctl,
+	.open  = led_open,
+	.release = led_release,
+};
+
+static void led_setup_cdev(struct led_dev *dev,int index){
+	int err,devno=MKDEV(led_major,index);
+
+	cdev_int(&dev->cdev,&led_fops);
+	dev->cdev.owner = THIS_MODULE;
+	dev->cdev.ops = &led_fops;
+	err = cdev_add(&dev->cdev,devno,1);
+	if(err)
+		printk(KERN_NOTICE "Error %d adding LED%d",err,index);
+}
+
+
+static int __init led_init(void){
+
+	int result;
+	dev_t dev = MKDEV(led_major,0);
+
+	if(led_major)
+		result = register_chrdev_region(dev,1,"LED");
+	else{
+		result = alloc_chrdev_region(dev,1,"LED");
+		led_major = MAJOR(dev);
+	}
+
+	if(result < 0)
+		return result;
+
+	led = kmalloc(sizeof(struct led_dev),GFP_KERNEL);
+	if(!led){
+		result = -ENOMEM;
+		goto fail_malloc;
+	}
+
+	memset(led,0,sizeof(struct led_dev));
+	led_setup_cdev(led,0);
+	light_init();
+
+	return 0;
+
+fail_malloc:
+	unregister_chrdev_region(dev,led);
+	return result;
+
+}
+
+
+static void __exit led_exit(void){
+	cdev_del(&led->cdev);
+	kfree(led);
+	unregister_chrdev_region(MKDEV(led_major,0),1);
+}
+
+
+module_init(led_init);
+module_exit(led_exit);

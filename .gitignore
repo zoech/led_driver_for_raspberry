@@ -1,0 +1,8 @@
+*.[oa]
+*~
+*.cmd
+.tmp_versions
+*.ko
+modules.order
+Module.symvers
+driver_led.mod.c

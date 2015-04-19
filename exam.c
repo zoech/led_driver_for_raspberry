@@ -2,7 +2,7 @@
 #include<fcntl.h>
 #include<unistd.h>
 
-#define CHR_DEV_NAME "/dev/led_dev"
+#define CHR_DEV_NAME "/dev/pi_led"
 
 #define CMD_LED_OFF 0
 #define CMD_LED_ON 1
@@ -36,7 +36,7 @@ int main(){
 
 	printf("blink led 3 time...\n");
 	count = 3;
-	write(fd,&count,sizeof(int));
+	write(fd,&count,sizeof(unsigned long));
 	printf("end blink.\n");
 	sleep(2);
 
@@ -44,11 +44,11 @@ int main(){
 
 	interval = 1000;
 	printf("set blink interval as %1dms\n",interval);
-	ioctl(fd,CMD_SET_INTERVAL,&interval);
+	ioctl(fd,CMD_SET_INTERVAL,interval);
 	
 	printf("blink led 3 time again...\n");
 	count = 3;
-	write(fd,&count,sizeof(int));
+	write(fd,&count,sizeof(unsigned long));
 	printf("end of second blink.\n");
 
 //------------------------------------------------------
